@@ -1,2 +1,2 @@
 # TextSummarizer
-Summarizes text
+Summarizes text - WIP
