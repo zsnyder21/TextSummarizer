@@ -8,7 +8,21 @@ from dotenv import load_dotenv
 from praw.models import MoreComments
 
 class CommentFetcher:
-    def __init__(self, script: str, token: str, agent: str, user: str, password: str):
+    """
+    Fetch comments from reddit
+
+    """
+    def __init__(self, script: str, token: str, agent: str, user: str, password: str) -> None:
+        """
+        Set required properties
+
+        :param script: Client Id
+        :param token: Client Secret
+        :param agent: User Agent
+        :param user: Username
+        :param password: Password
+        :returns None
+        """
         self.reddit = Reddit(
             client_id=script,
             client_secret=token,
@@ -17,7 +31,15 @@ class CommentFetcher:
             password=password
         )
 
-    def getChildComments(self, comment: praw.models.Comment, allComments: list, limit: int):
+    def getChildComments(self, comment: praw.models.Comment, allComments: list, limit: int) -> None:
+        """
+        Fetch child comments from a given comment object
+
+        :param comment: Comment object to fetch child comments from
+        :param allComments: List holding all comments
+        :param limit: Maximum number of comments to be fetching
+        :return: None
+        """
         if limit is not None and len(allComments) >= limit:
             return
 
@@ -35,8 +57,17 @@ class CommentFetcher:
             for reply in replies:
                 self.getChildComments(reply, allComments, limit)
 
-    def fetchCommentsByURL(self, url: str, limit: int = None):
-        submission = self.reddit.submission(url=url)
+    def fetchCommentsBySubmission(self, submission: praw.models.Submission, limit: int = None) -> list:
+        """
+        Fetch comments on a given submission
+
+        :param submission: Submission to fetch comments from (Submission object or URL)
+        :param limit: Maximum number of comments to fetch
+        :return: List of comments
+        """
+        if type(submission) is str:
+            submission = self.reddit.submission(url=url)
+
         comments = []
 
         for comment in submission.comments:
@@ -44,7 +75,79 @@ class CommentFetcher:
 
         return comments
 
-    def transformCommentsToDictionaries(self, comments: list):
+    def fetchSubmissionComments(self, submission: praw.models.Submission, limit: int = None) -> list:
+        """
+        DEPRECATED! Grabs all comments. Deprecated because no control of limitations
+
+        :param submission: Submission to fetch comments from
+        :param limit: Number of MoreComments instances to resolve
+        :return: List of comments
+        """
+        comments = submission.comments
+        comments.replace_more(limit=limit)
+
+        return pd.DataFrame(self.transformCommentsToDictionaries(comments.list()))
+
+    def fetchSubmissions(self, subreddit: str) -> praw.models.ListingGenerator:
+        """
+        Fetch top (all-time) submissions from a given subreddit
+
+        :param subreddit: Subreddit name
+        :return: Top all=time submissions from a subreddit
+        """
+        submissions = self.reddit.subreddit(subreddit).top("all")
+
+        return submissions
+
+    def fetchSubredditComments(self,
+                               subreddit: str,
+                               submissionLimit: int = 1000,
+                               commentsPerSubmission: int = 5000,
+                               save: bool = False,
+                               saveLocation: str = "../data/comments.pkl") -> pd.DataFrame:
+        """
+        Fetch comments from a given subreddit
+
+        :param subreddit: Name of subreddit to fetch comments from
+        :param submissionLimit: Maximum number of submissions to fetch comments from
+        :param commentsPerSubmission: Number of comments to fetch per submission
+        :param save: Whether or not to save the data
+        :param saveLocation: Where to save the data
+        :return: Dataframe containing the comments
+        """
+        submissions = self.fetchSubmissions(subreddit)
+        submissionCount = 1
+        data = None
+
+        for submission in submissions:
+            submissionCount += 1
+            comments = self.fetchCommentsBySubmission(submission, limit=commentsPerSubmission)
+
+            # First pass - create dataframe
+            if data is None:
+                data = pd.DataFrame(self.transformCommentsToDictionaries(comments, submission))
+            else:
+                # Subsequent passes - append new data
+                data = data.append(pd.DataFrame(self.transformCommentsToDictionaries(comments, submission)))
+
+            # Checkpoint the data
+            if save:
+                data.to_pickle(saveLocation)
+
+            if submissionCount > submissionLimit:
+                break
+
+        return data
+
+    def transformCommentsToDictionaries(self, comments: list, submission: praw.models.Submission) -> list:
+        """
+        Converts a list of comment objects to a list of dictionaries
+        containing the relevant key/value pairs
+
+        :param comments: List of comment objects to convert
+        :param submission: Submission object from which the comment originated
+        :return: List of dictionaries
+        """
         commentsDictionary = []
 
         for comment in comments:
@@ -62,8 +165,11 @@ class CommentFetcher:
                     "LinkId": comment.link_id,
                     "ParentCommentId": comment.parent_id,
                     "Permalink": comment.permalink,
-                    "Score": comment.score,
+                    "CommentScore": comment.score,
                     "Stickied": comment.stickied,
+                    "SubmissionId": submission.id,
+                    "UpvoteRatio": submission.upvote_ratio,
+                    "SubmissionScore": submission.score,
                     "SubredditId": comment.subreddit_id,
                     "CommentBody": comment.body
                 }
@@ -89,12 +195,10 @@ if __name__ == "__main__":
         password=password
     )
 
-    test = fetcher.fetchCommentsByURL(
-        url="https://old.reddit.com/r/AskReddit/comments/qgic1v/left_wingers_of_reddit_what_would_you_say_your/",
-        limit = 3
+    df = fetcher.fetchSubredditComments(
+        subreddit="AskReddit",
+        submissionLimit=2500,
+        commentsPerSubmission=20000,
+        save=True,
+        saveLocation="../data/comments.pkl"
     )
-    # print(fetcher.transformCommentsToDictionaries(test))
-    df = pd.DataFrame(fetcher.transformCommentsToDictionaries(test))
-    print(df.head())
-    print(df.describe())
-    print(df.info())
