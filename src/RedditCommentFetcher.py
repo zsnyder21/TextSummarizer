@@ -27,7 +27,7 @@ class CommentFetcher:
             client_id=script,
             client_secret=token,
             user_agent=agent,
-            username=username,
+            username=user,
             password=password
         )
 
@@ -104,7 +104,8 @@ class CommentFetcher:
                                submissionLimit: int = 1000,
                                commentsPerSubmission: int = 5000,
                                save: bool = False,
-                               saveLocation: str = "../data/comments.pkl") -> pd.DataFrame:
+                               saveLocation: str = "../data/comments.pkl",
+                               offset: int = 0) -> pd.DataFrame:
         """
         Fetch comments from a given subreddit
 
@@ -113,14 +114,24 @@ class CommentFetcher:
         :param commentsPerSubmission: Number of comments to fetch per submission
         :param save: Whether or not to save the data
         :param saveLocation: Where to save the data
+        :param How many submissions to skip
         :return: Dataframe containing the comments
         """
+        if os.path.exists(saveLocation):
+            data = pd.read_pickle(saveLocation)
+        else:
+            data = None
+
         submissions = self.fetchSubmissions(subreddit)
         submissionCount = 1
-        data = None
 
         for submission in submissions:
             submissionCount += 1
+
+            # Skip the required number of submissions
+            if submissionCount <= offset:
+                continue
+
             comments = self.fetchCommentsBySubmission(submission, limit=commentsPerSubmission)
 
             # First pass - create dataframe
@@ -200,5 +211,6 @@ if __name__ == "__main__":
         submissionLimit=2500,
         commentsPerSubmission=20000,
         save=True,
-        saveLocation="../data/comments.pkl"
+        saveLocation="../data/comments.pkl",
+        offset=8
     )
